@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: auth_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: auth_db
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: auth_backend
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - MONGO_URI=mongodb://admin:admin123@mongodb:27017/auth_db?authSource=admin
+      - JWT_SECRET=your_super_secret_jwt_key_change_this
+      - JWT_REFRESH_SECRET=your_super_secret_refresh_key_change_this
+      - ACCESS_TOKEN_EXPIRY=15m
+      - REFRESH_TOKEN_EXPIRY=7d
+      - CLIENT_URL=http://localhost:3000
+      - CORS_ORIGIN=http://localhost:3000
+      - COOKIE_DOMAIN=localhost
+      - BCRYPT_ROUNDS=10
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app_network
+    volumes:
+      - ./backend:/usr/src/app
+      - /usr/src/app/node_modules
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - NEXT_PUBLIC_API_URL=http://backend:4000  # 👈 Use backend service name
+    container_name: auth_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://backend:4000  # 👈 Use backend service name
+      - NEXT_TELEMETRY_DISABLED=1
+      - PORT=3000
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - app_network
+    volumes:
+      - ./app:/app/app
+      - ./components:/app/components
+      - ./lib:/app/lib
+      - ./providers:/app/providers
+      - ./public:/app/public
+      - ./types:/app/types
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge
